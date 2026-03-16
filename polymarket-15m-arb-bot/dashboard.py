@@ -428,11 +428,12 @@ def render_trades(state: BotState) -> Panel:
     t.add_column("Time", min_width=8)
     t.add_column("Market", ratio=3)
     t.add_column("Comb", justify="right", min_width=6)
+    t.add_column("Left", justify="right", min_width=6)
     t.add_column("Profit", justify="right", min_width=8)
     t.add_column("", min_width=4)
 
     if not state.recent_trades:
-        t.add_row("[dim]Сделок пока нет...[/]", "", "", "", "")
+        t.add_row("[dim]Сделок пока нет...[/]", "", "", "", "", "")
     else:
         for trade in state.recent_trades[:10]:
             ts = trade.timestamp.strftime("%H:%M:%S")
@@ -440,7 +441,12 @@ def render_trades(state: BotState) -> Panel:
             pnl = f"{sign}${abs(trade.profit_usd):.2f}"
             sim = "[dim](sim)[/]" if trade.dry_run else "[yellow](live)[/]"
             q = _short_name(trade.market, 30)
-            t.add_row(f"[dim]{ts}[/]", q, f"{trade.combined:.4f}", pnl, sim)
+            sec = trade.seconds_left
+            if sec >= 60:
+                left_str = f"[dim]{int(sec // 60)}m{int(sec % 60):02d}s[/]"
+            else:
+                left_str = f"[yellow]{int(sec)}s[/]"
+            t.add_row(f"[dim]{ts}[/]", q, f"{trade.combined:.4f}", left_str, pnl, sim)
 
     return Panel(t, title="[bold]Recent Trades[/]", box=box.ROUNDED, border_style="magenta")
 

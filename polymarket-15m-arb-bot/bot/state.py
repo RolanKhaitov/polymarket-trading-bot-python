@@ -16,6 +16,7 @@ class RecentTrade:
     profit_usd: float
     trade_size: float
     dry_run: bool
+    seconds_left: float = 0.0
     timestamp: datetime = field(default_factory=lambda: datetime.now(timezone.utc))
 
 

@@ -136,6 +136,7 @@ class ArbitrageBot:
                 profit_usd=profit,
                 trade_size=opp.trade_size,
                 dry_run=self.config.dry_run,
+                seconds_left=opp.market.seconds_to_expiry or 0.0,
             ))
 
         except Exception as e:
