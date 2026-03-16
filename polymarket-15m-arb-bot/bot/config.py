@@ -28,8 +28,8 @@ class Config:
 
     # ── Торговые параметры ────────────────────────────────────────────────
     max_position_size: float = 50.0       # USD на рынок
-    min_profit_pct: float = 0.02          # 2% gross (≈1% net после комиссий)
-    min_liquidity_usd: float = 50.0       # мин. ликвидность на стороне
+    min_profit_pct: float = 0.005         # 0.5% net — реалистичный порог
+    min_liquidity_usd: float = 20.0       # мин. ликвидность на стороне
 
     # ── Риск ──────────────────────────────────────────────────────────────
     max_seconds_to_expiry: int = 1000     # не торговать если окно ещё не началось
@@ -60,8 +60,8 @@ class Config:
             poly_api_passphrase=os.getenv("POLY_API_PASSPHRASE") or None,
             dry_run=os.getenv("DRY_RUN", "true").lower() != "false",
             max_position_size=float(os.getenv("MAX_POSITION_SIZE", "50")),
-            min_profit_pct=float(os.getenv("MIN_PROFIT_PCT", "0.02")),
-            min_liquidity_usd=float(os.getenv("MIN_LIQUIDITY_USD", "50")),
+            min_profit_pct=float(os.getenv("MIN_PROFIT_PCT", "0.005")),
+            min_liquidity_usd=float(os.getenv("MIN_LIQUIDITY_USD", "20")),
             max_daily_loss=float(os.getenv("MAX_DAILY_LOSS", "20")),
             max_concurrent_positions=int(os.getenv("MAX_CONCURRENT_POSITIONS", "5")),
             min_seconds_to_expiry=int(os.getenv("MIN_SECONDS_TO_EXPIRY", "30")),

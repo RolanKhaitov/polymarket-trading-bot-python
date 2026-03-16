@@ -59,8 +59,8 @@ def ensure_defaults() -> None:
     defaults = {
         "DRY_RUN": "true",
         "MAX_POSITION_SIZE": "50.0",
-        "MIN_PROFIT_PCT": "0.02",
-        "MIN_LIQUIDITY_USD": "50.0",
+        "MIN_PROFIT_PCT": "0.005",
+        "MIN_LIQUIDITY_USD": "20.0",
         "MAX_DAILY_LOSS": "20.0",
         "MAX_CONCURRENT_POSITIONS": "5",
         "MIN_SECONDS_TO_EXPIRY": "30",
@@ -84,7 +84,7 @@ def status_panel() -> Panel:
     api_text  = "[green]настроены[/]" if (has_key and has_api) else "[yellow]не настроены[/]"
     env_text  = "[green]найден[/]" if ENV_PATH.exists() else "[red]не найден[/]"
 
-    min_profit = float(env.get("MIN_PROFIT_PCT", "0.02")) * 100
+    min_profit = float(env.get("MIN_PROFIT_PCT", "0.005")) * 100
     max_pos    = env.get("MAX_POSITION_SIZE", "50")
     max_loss   = env.get("MAX_DAILY_LOSS", "20")
 
