@@ -171,6 +171,7 @@ class ArbitrageBot:
             self.state.total_pnl = risk["total_profit"]
             self.state.ws_last_msg_sec = self.scanner.seconds_since_last_message
             self.state.ws_connected = self.state.ws_last_msg_sec < 30
+            self.state.risk_paused = risk.get("paused", False)
 
     def _log_final_stats(self) -> None:
         risk = self.risk.get_stats()

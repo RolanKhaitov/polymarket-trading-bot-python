@@ -54,6 +54,7 @@ class BotState:
         self.total_pnl: float = 0.0
         self.ws_last_msg_sec: float = 0.0
         self.ws_connected: bool = False
+        self.risk_paused: bool = False       # пауза риск-менеджера
 
         # Последние сделки (макс. 20)
         self.recent_trades: list[RecentTrade] = []

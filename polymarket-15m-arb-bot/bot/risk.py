@@ -93,8 +93,8 @@ class RiskManager:
             self._consecutive_losses = 0
         else:
             self._consecutive_losses += 1
-            # Пауза после 5 подряд убыточных сделок
-            if self._consecutive_losses >= 5:
+            # Пауза после 5 подряд убыточных сделок (не в тест-режиме)
+            if self._consecutive_losses >= 5 and self.config.min_profit_pct >= 0:
                 from datetime import timedelta
                 self._paused_until = datetime.now(timezone.utc) + timedelta(minutes=30)
                 log.warning(

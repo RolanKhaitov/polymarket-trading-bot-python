@@ -310,6 +310,8 @@ def render_header(state: BotState) -> Panel:
 
     status = "[green bold]RUNNING[/]" if state.running else "[red bold]STOPPED[/]"
     title.append(f"  {status}  ")
+    if state.risk_paused:
+        title.append("  ⚠ RISK PAUSE  ", style="bold white on red")
 
     return Panel(title, box=box.HORIZONTALS, padding=(0, 1))
 
