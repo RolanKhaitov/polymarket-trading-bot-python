@@ -1,0 +1,17 @@
+# Приватные данные — НИКОГДА не коммитить
+.env
+
+# Логи
+*.log
+
+# Python
+__pycache__/
+*.py[cod]
+*.pyo
+.venv/
+venv/
+env/
+
+# IDE
+.vscode/
+.idea/
