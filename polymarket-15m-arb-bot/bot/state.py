@@ -123,6 +123,17 @@ class BotState:
         markets.sort(key=lambda m: m.combined or 2.0)
         return markets[:n]
 
+    def get_upcoming_markets(self, n: int = 5) -> list[ActiveMarket]:
+        """Рынки, которые войдут в торговое окно в ближайшие минуты."""
+        upper = self.max_seconds_to_expiry * 3  # ~21 мин при 420
+        markets = [
+            m for m in self.active_market_prices.values()
+            if m.seconds_left is not None
+            and self.max_seconds_to_expiry <= m.seconds_left <= upper
+        ]
+        markets.sort(key=lambda m: m.seconds_left or 9999)
+        return markets[:n]
+
     @property
     def win_rate(self) -> float:
         if self.trades_executed == 0:

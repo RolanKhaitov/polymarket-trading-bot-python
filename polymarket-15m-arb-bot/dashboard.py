@@ -17,7 +17,9 @@ import msvcrt
 import signal
 import threading
 import time
+from datetime import timezone as _tz
 from pathlib import Path
+from zoneinfo import ZoneInfo
 
 from rich import box
 from rich.console import Console
@@ -169,7 +171,7 @@ _SETTINGS_FIELDS = [
     ("MAX_DAILY_LOSS",           "Макс. дневной убыток",     "usd",  "USD — бот остановится"),
     ("MAX_CONCURRENT_POSITIONS", "Макс. позиций сразу",      "int",  "штук"),
     ("MIN_SECONDS_TO_EXPIRY",    "Мин. секунд до закрытия",  "sec",  "не входить если < N сек"),
-    ("MAX_SECONDS_TO_EXPIRY",    "Макс. секунд до закрытия", "sec",  "1000 = ~16 мин"),
+    ("MAX_SECONDS_TO_EXPIRY",    "Макс. секунд до закрытия", "sec",  "420 = ~7 мин"),
     ("MARKET_REFRESH_INTERVAL",  "Обновление рынков",        "sec",  "каждые N секунд"),
 ]
 
@@ -296,6 +298,31 @@ class _KeyboardHandler:
 
 # ─── Рендер блоков ────────────────────────────────────────────────────────────
 
+_ET = ZoneInfo("America/New_York")
+_TRADING_START = (11, 20)   # 11:20 AM ET
+_TRADING_END   = (15, 50)   # 3:50 PM ET
+
+
+def _et_now_str() -> str:
+    """Текущее время ET в формате HH:MM:SS."""
+    from datetime import datetime as _dt
+    return _dt.now(_ET).strftime("%H:%M:%S ET")
+
+
+def _trading_status() -> str:
+    """Статус торгового часа ET."""
+    from datetime import datetime as _dt
+    now = _dt.now(_ET)
+    h, m = now.hour, now.minute
+    sh, sm = _TRADING_START
+    eh, em = _TRADING_END
+    in_window = (h * 60 + m) >= (sh * 60 + sm) and (h * 60 + m) < (eh * 60 + em)
+    # Weekday 0=Mon..4=Fri
+    if now.weekday() >= 5:
+        return "[dim]выходной[/]"
+    return "[green]OPEN[/]" if in_window else "[dim]CLOSED (11:20-15:50 ET)[/]"
+
+
 def render_header(state: BotState) -> Panel:
     mode_color = "yellow" if state.mode == "DRY RUN" else "red"
     ws_status = "[green]CONNECTED[/]" if state.ws_connected else "[red]RECONNECTING[/]"
@@ -304,6 +331,7 @@ def render_header(state: BotState) -> Panel:
     title.append("  Polymarket 15-min Arb Bot  ", style="bold white on dark_blue")
     title.append(f"  {state.mode}  ", style=f"bold white on {mode_color}")
     title.append(f"  Uptime: {state.uptime_str}  ", style="dim")
+    title.append(f"  {_et_now_str()}  ", style="cyan")
     title.append(f"  WS: {ws_status}  ")
     title.append(f"  Markets: {state.markets_loaded:,}  ", style="cyan")
     title.append(f"  Tokens: {state.tokens_subscribed:,}  ", style="cyan dim")
@@ -357,11 +385,14 @@ def render_stats(state: BotState) -> Panel:
     t.add_row("Min profit:", f"{state.min_profit_pct * 100:.1f}%")
     t.add_row("Max position:", f"${state.max_position_size:.0f}")
     t.add_row("WS last msg:", f"{state.ws_last_msg_sec:.0f}s ago")
+    t.add_row("")
+    t.add_row("Trading hours:", _trading_status())
 
     return Panel(t, title="[bold]Statistics[/]", box=box.ROUNDED, border_style="blue")
 
 
 def render_markets(state: BotState) -> Panel:
+    # ── Активные рынки в окне ────────────────────────────────────────────────
     t = Table(
         show_header=True,
         header_style="bold cyan",
@@ -376,10 +407,10 @@ def render_markets(state: BotState) -> Panel:
     t.add_column("Profit", justify="right", min_width=7)
     t.add_column("Left", justify="right", min_width=5)
 
-    markets = state.get_top_opportunities(n=12)
+    markets = state.get_top_opportunities(n=10)
 
     if not markets:
-        t.add_row("[dim]Нет активных рынков в окне...[/]", "", "", "", "", "")
+        t.add_row("[dim]Нет рынков в торговом окне...[/]", "", "", "", "", "")
         subtitle = "[dim]Торговые часы: 11:20AM – 3:50PM ET[/]"
     else:
         subtitle = f"[dim]Топ {len(markets)} рынков по спреду[/]"
@@ -409,6 +440,26 @@ def render_markets(state: BotState) -> Panel:
             f"[{profit_style}]{profit_pct * 100:+.2f}%[/]" if profit_pct else "—",
             f"{seconds_left:.0f}s" if seconds_left else "—",
         )
+
+    # ── Upcoming (входят в окно скоро) ───────────────────────────────────────
+    upcoming = state.get_upcoming_markets(n=5)
+    if upcoming:
+        t.add_row("", "", "", "", "", "")
+        t.add_row("[dim bold]↓ Upcoming (входят в окно)[/]", "", "", "", "", "")
+        for m in upcoming:
+            sec = m.seconds_left or 0
+            mins_left = int(sec // 60)
+            secs_left = int(sec % 60)
+            q = _short_name(m.question, 38)
+            combined = m.combined or 0
+            t.add_row(
+                f"[dim]{q}[/]",
+                f"[dim]{m.yes_ask:.3f}[/]" if m.yes_ask else "—",
+                f"[dim]{m.no_ask:.3f}[/]" if m.no_ask else "—",
+                f"[dim]{combined:.4f}[/]",
+                "",
+                f"[dim]{mins_left}m{secs_left:02d}s[/]",
+            )
 
     return Panel(
         t,

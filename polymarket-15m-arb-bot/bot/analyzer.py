@@ -55,14 +55,14 @@ class ArbitrageAnalyzer:
         combined = yes_ask + no_ask
 
         # Быстрая проверка: combined должен быть < 1.0
-        if combined >= 1.0:
+        # Если min_profit_pct отрицательный — тест-режим, пропускаем проверку
+        if combined >= 1.0 and self.config.min_profit_pct >= 0:
             return None
 
-        # Gross profit до комиссий
+        # Gross profit до комиссий (может быть отрицательным в тест-режиме)
         gross_profit_pct = 1.0 - combined
 
         # Net profit с учётом комиссий
-        # Fee = (yes_ask + no_ask) * fee_rate (приблизительно)
         total_fee = combined * POLYMARKET_FEE_RATE
         net_profit_pct = gross_profit_pct - total_fee
 
