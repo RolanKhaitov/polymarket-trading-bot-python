@@ -338,6 +338,20 @@ def render_stats(state: BotState) -> Panel:
         + (" [dim](sim)[/]" if state.mode == "DRY RUN" else ""),
     )
     t.add_row("")
+    # Near-miss трекер
+    best = state.best_comb_today
+    if best < 9.0:
+        best_color = "green bold" if best < 1.0 else ("yellow" if best < 1.005 else "dim")
+        best_str = f"[{best_color}]{best:.4f}[/]"
+        if state.best_comb_market:
+            short = _short_name(state.best_comb_market, 16)
+            best_str += f" [dim]{short}[/]"
+    else:
+        best_str = "[dim]—[/]"
+    t.add_row("Best Comb today:", best_str)
+    nm_color = "yellow" if state.near_misses > 0 else "dim"
+    t.add_row("Near misses:", f"[{nm_color}]{state.near_misses:,}[/] [dim](<1.005)[/]")
+    t.add_row("")
     t.add_row("Min profit:", f"{state.min_profit_pct * 100:.1f}%")
     t.add_row("Max position:", f"${state.max_position_size:.0f}")
     t.add_row("WS last msg:", f"{state.ws_last_msg_sec:.0f}s ago")

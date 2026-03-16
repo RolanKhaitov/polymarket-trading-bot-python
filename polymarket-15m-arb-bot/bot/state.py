@@ -61,10 +61,15 @@ class BotState:
         self.active_market_prices: dict[str, ActiveMarket] = {}  # market_id → ActiveMarket
 
         # Конфиг (для отображения)
-        self.min_profit_pct: float = 0.02
+        self.min_profit_pct: float = 0.005
         self.max_position_size: float = 50.0
         self.min_seconds_to_expiry: int = 30
         self.max_seconds_to_expiry: int = 1000
+
+        # Near-miss трекер
+        self.best_comb_today: float = 9.99   # минимальный Comb за сессию
+        self.best_comb_market: str = ""      # рынок с мин. Comb
+        self.near_misses: int = 0            # сколько раз Comb < 1.005
 
     def add_trade(self, trade: RecentTrade) -> None:
         self.recent_trades.insert(0, trade)
@@ -96,6 +101,14 @@ class BotState:
             profit_pct=profit_pct,
         )
         self.price_updates += 1
+
+        # Обновляем near-miss трекер
+        if combined is not None:
+            if combined < self.best_comb_today:
+                self.best_comb_today = combined
+                self.best_comb_market = question
+            if combined < 1.005:
+                self.near_misses += 1
 
     def get_top_opportunities(self, n: int = 8) -> list[ActiveMarket]:
         """Топ рынков по близости к арбитражу (combined наименьший)."""

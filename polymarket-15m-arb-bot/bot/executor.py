@@ -1,8 +1,19 @@
 """Исполнитель ордеров — dry-run и live режимы."""
 
 import logging
+import sys
 from datetime import datetime, timezone
 from typing import Optional
+
+
+def _beep() -> None:
+    """Звуковой сигнал при найденной сделке (Windows)."""
+    try:
+        import winsound
+        winsound.Beep(1000, 300)  # 1000 Hz, 300 мс
+        winsound.Beep(1200, 200)
+    except Exception:
+        pass  # не Windows или нет звука
 
 from .config import Config
 from .models import ArbitrageOpportunity, TradeResult
@@ -38,6 +49,8 @@ class DryRunExecutor:
 
         self._trades.append(result)
         self._total_simulated_profit += opp.estimated_profit
+
+        _beep()  # звуковой сигнал
 
         log.info(
             "[DRY RUN] 🎯 TRADE SIMULATED\n"
