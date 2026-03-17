@@ -60,4 +60,10 @@ async def main() -> None:
 
 
 if __name__ == "__main__":
+    try:
+        import uvloop  # type: ignore
+        asyncio.set_event_loop_policy(uvloop.EventLoopPolicy())
+        logging.getLogger(__name__).info("uvloop enabled")
+    except ImportError:
+        pass  # Windows — standard asyncio
     asyncio.run(main())

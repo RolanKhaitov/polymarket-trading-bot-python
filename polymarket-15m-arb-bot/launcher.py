@@ -57,14 +57,14 @@ def ensure_defaults() -> None:
     if ENV_PATH.exists():
         return
     defaults = {
-        "DRY_RUN": "true",
-        "MAX_POSITION_SIZE": "50.0",
-        "MIN_PROFIT_PCT": "0.005",
-        "MIN_LIQUIDITY_USD": "20.0",
-        "MAX_DAILY_LOSS": "20.0",
-        "MAX_CONCURRENT_POSITIONS": "5",
-        "MIN_SECONDS_TO_EXPIRY": "30",
-        "MAX_SECONDS_TO_EXPIRY": "1000",
+        "BOT_MODE": "paper",
+        "DATA_SOURCE": "direct",
+        "MAX_POSITION_SIZE": "1",
+        "MIN_LIQUIDITY_USD": "10",
+        "MAX_DAILY_LOSS": "50",
+        "MAX_CONCURRENT_POSITIONS": "10",
+        "MIN_SECONDS_TO_EXPIRY": "10",
+        "MAX_SECONDS_TO_EXPIRY": "120",
         "MARKET_REFRESH_INTERVAL": "60",
         "LOG_LEVEL": "INFO",
     }
@@ -76,17 +76,22 @@ def ensure_defaults() -> None:
 def status_panel() -> Panel:
     env = read_env()
 
-    dry_run = env.get("DRY_RUN", "true").lower() == "true"
-    has_key = bool(env.get("PRIVATE_KEY", "").strip())
-    has_api = bool(env.get("POLY_API_KEY", "").strip())
+    bot_mode = env.get("BOT_MODE", "").lower().strip()
+    if not bot_mode:
+        bot_mode = "dry" if env.get("DRY_RUN", "true").lower() != "false" else "live"
 
-    mode_text = "[green]DRY RUN (симуляция)[/]" if dry_run else "[red bold]LIVE (реальные деньги)[/]"
-    api_text  = "[green]настроены[/]" if (has_key and has_api) else "[yellow]не настроены[/]"
-    env_text  = "[green]найден[/]" if ENV_PATH.exists() else "[red]не найден[/]"
+    has_wallet = bool(env.get("POLYMARKET_PRIVATE_KEY", "").strip())
 
-    min_profit = float(env.get("MIN_PROFIT_PCT", "0.005")) * 100
-    max_pos    = env.get("MAX_POSITION_SIZE", "50")
-    max_loss   = env.get("MAX_DAILY_LOSS", "20")
+    mode_text = {
+        "dry":   "[yellow]DRY — симуляция[/]",
+        "paper": "[cyan]PAPER — виртуальная торговля[/]",
+        "live":  "[red bold]LIVE — реальные деньги[/]",
+    }.get(bot_mode, f"[dim]{bot_mode}[/]")
+    wallet_text = "[green]configured[/]" if has_wallet else "[yellow]missing[/]"
+    env_text    = "[green]найден[/]" if ENV_PATH.exists() else "[red]не найден[/]"
+
+    max_pos  = env.get("MAX_POSITION_SIZE", "1")
+    max_loss = env.get("MAX_DAILY_LOSS", "50")
 
     t = Table.grid(padding=(0, 2))
     t.add_column(style="dim", min_width=20)
@@ -94,8 +99,7 @@ def status_panel() -> Panel:
 
     t.add_row("Файл настроек:", env_text)
     t.add_row("Режим:", mode_text)
-    t.add_row("API ключи:", api_text)
-    t.add_row("Мин. прибыль:", f"{min_profit:.1f}%")
+    t.add_row("Wallet:", wallet_text)
     t.add_row("Макс. позиция:", f"${max_pos}")
     t.add_row("Макс. убыток/день:", f"${max_loss}")
 
@@ -147,17 +151,51 @@ def menu_launch_bot() -> None:
     subprocess.run([sys.executable, "dashboard.py"])
 
 
+_MODE_LABELS = {
+    "dry":        "[yellow]DRY — симуляция[/]",
+    "paper":      "[cyan]PAPER — виртуальная торговля[/]",
+    "live":       "[red bold]LIVE — реальные деньги[/]",
+}
+_SOURCE_LABELS = {
+    "direct":     "[dim]DIRECT[/]",
+    "monitoring": "[cyan]MONITORING[/]",
+    "auto":       "[yellow]AUTO[/]",
+}
+
+
+def _fmt_field(raw: str, typ: str) -> str:
+    try:
+        if typ == "mode":
+            return _MODE_LABELS.get((raw or "").lower(), f"[dim]{raw or '—'}[/]")
+        if typ == "source":
+            return _SOURCE_LABELS.get((raw or "").lower(), f"[dim]{raw or '—'}[/]")
+        if typ == "pct":
+            return f"{float(raw) * 100:.1f}%"
+        if typ == "usd":
+            return f"${float(raw):.1f}"
+        if typ == "url":
+            return f"[cyan]{raw}[/]" if raw else "[red]не задан[/]"
+        return raw or "—"
+    except Exception:
+        return raw or "—"
+
+
 def menu_trading_settings() -> None:
     FIELDS = [
-        ("MIN_PROFIT_PCT",           "Мин. прибыль %",            "pct",  "2.0 = 2% (рекомендуется 1-3%)"),
-        ("MAX_POSITION_SIZE",        "Макс. позиция",             "usd",  "USD на один рынок"),
-        ("MIN_LIQUIDITY_USD",        "Мин. ликвидность",          "usd",  "USD на каждой стороне рынка"),
-        ("MAX_DAILY_LOSS",           "Макс. дневной убыток",      "usd",  "бот остановится при достижении"),
-        ("MAX_CONCURRENT_POSITIONS", "Макс. позиций одновременно","int",  "рекомендуется 3-10"),
-        ("MIN_SECONDS_TO_EXPIRY",    "Мин. секунд до закрытия",   "sec",  "не входить если < N сек (30)"),
-        ("MAX_SECONDS_TO_EXPIRY",    "Макс. секунд до закрытия",  "sec",  "не входить если > N сек (420 = ~7 мин)"),
-        ("MARKET_REFRESH_INTERVAL",  "Обновление списка рынков",  "sec",  "каждые N секунд (60)"),
-        ("DRY_RUN",                  "Режим (DRY RUN / LIVE)",    "bool", "true = симуляция, false = реальная торговля"),
+        ("BOT_MODE",                 "Режим бота",                "mode",   "dry · paper · live  [Enter = следующий]"),
+        ("DATA_SOURCE",              "Источник данных",           "source", "direct · monitoring · auto  [Enter = следующий]"),
+        ("MONITORING_API_URL",        "Monitoring API URL",        "url",    "http://host:port  (только для DATA_SOURCE=monitoring/auto)"),
+        ("MONITORING_WS_URL",        "Monitoring WebSocket URL",  "url",    "ws://host:port/ws  (только для DATA_SOURCE=monitoring/auto)"),
+        ("MAX_POSITION_SIZE",        "Макс. позиция",             "usd",    "USD на один рынок"),
+        ("MIN_FAVORITE_PRICE",      "Мин. цена фаворита",        "pct",    "0.75 = 75¢ — в последние 2 мин должно быть ≥75¢"),
+        ("LIMIT_DISCOUNT",          "Скидка лимита (¢)",         "pct",    "0.03 = 3¢ ниже ask — наша лимитная цена"),
+        ("MIN_LIQUIDITY_USD",       "Мин. ликвидность",          "usd",    "USD на стороне фаворита (5-10 для 5-мин рынков)"),
+        ("CANDIDATE_NEAR_DELTA",    "Зона кандидатов",           "pct",    "0.05 = показывать рынки в диапазоне (fav-5¢, fav)"),
+        ("MAX_DAILY_LOSS",           "Макс. дневной убыток",      "usd",    "бот остановится при достижении"),
+        ("MAX_CONCURRENT_POSITIONS", "Макс. позиций одновременно","int",    "рекомендуется 3-10"),
+        ("MIN_SECONDS_TO_EXPIRY",    "Мин. секунд до закрытия",   "sec",    "не входить если < N сек"),
+        ("MAX_SECONDS_TO_EXPIRY",    "Макс. секунд до закрытия",  "sec",    "120 = последние 2 минуты"),
+        ("MARKET_REFRESH_INTERVAL",  "Обновление списка рынков",  "sec",    "каждые N секунд"),
     ]
 
     while True:
@@ -169,27 +207,16 @@ def menu_trading_settings() -> None:
         t = Table(show_header=True, header_style="bold cyan", box=box.ROUNDED, padding=(0, 2))
         t.add_column("#",          min_width=3,  justify="right", style="dim")
         t.add_column("Параметр",   min_width=30)
-        t.add_column("Значение",   min_width=14, justify="right")
+        t.add_column("Значение",   min_width=22, justify="right")
         t.add_column("Пояснение",  style="dim")
 
         for i, (key, label, typ, hint) in enumerate(FIELDS, 1):
-            raw = env.get(key, "")
-            try:
-                if typ == "bool":
-                    val_str = "[green]DRY RUN[/]" if raw.lower() == "true" else "[red bold]LIVE[/]"
-                elif typ == "pct":
-                    val_str = f"{float(raw) * 100:.1f}%"
-                elif typ == "usd":
-                    val_str = f"${float(raw):.1f}"
-                else:
-                    val_str = raw or "—"
-            except Exception:
-                val_str = raw or "—"
-            t.add_row(str(i), label, val_str, hint)
+            t.add_row(str(i), label, _fmt_field(env.get(key, ""), typ), hint)
 
         console.print(t)
         console.print()
         console.print("[dim]Введите номер для изменения, или Enter чтобы вернуться[/dim]")
+        console.print("[dim]Изменения вступят в силу после перезапуска бота[/dim]")
         console.print()
 
         choice = console.input("[cyan]> [/cyan]").strip()
@@ -208,15 +235,67 @@ def menu_trading_settings() -> None:
         key, label, typ, hint = FIELDS[idx]
         current = env.get(key, "")
 
-        if typ == "bool":
-            is_true = current.lower() == "true"
-            new_val = "false" if is_true else "true"
-            status = "[green]DRY RUN (симуляция)[/]" if new_val == "true" else "[red bold]LIVE (реальные деньги!)[/]"
-            console.print(f"  Режим изменён на: {status}")
-            env[key] = new_val
+        if typ == "mode":
+            cycle = ["dry", "paper", "live"]
+            cur = (current or "paper").lower().strip()
+            nxt = cycle[(cycle.index(cur) + 1) % len(cycle)] if cur in cycle else "paper"
+            console.print(f"  {label}: {_fmt_field(current, typ)} → {_fmt_field(nxt, typ)}")
+
+            if nxt == "live":
+                # ── Safety confirmation before enabling LIVE mode ─────────────
+                console.print()
+                console.print("[red bold]WARNING: LIVE trading enabled[/red bold]")
+                console.print("[red]Real funds will be used.[/red]")
+                has_wallet = bool(env.get("POLYMARKET_PRIVATE_KEY", "").strip())
+                if not has_wallet:
+                    console.print(
+                        "[yellow]  Wallet not configured — set POLYMARKET_PRIVATE_KEY "
+                        "in option [3] before starting.[/yellow]"
+                    )
+                console.print()
+                confirm = console.input("  Type [bold]YES[/bold] to continue: ").strip()
+                if confirm != "YES":
+                    console.print("  [dim]Cancelled — mode not changed.[/dim]")
+                    time.sleep(1.0)
+                    continue
+
+            env[key] = nxt
             write_env(env)
-            console.print("  [green]Сохранено![/green]")
-            time.sleep(1)
+            console.print("  [green]Сохранено! Перезапустите бота чтобы применить.[/green]")
+            time.sleep(1.0)
+        elif typ == "source":
+            cycle = ["direct", "monitoring", "auto"]
+            cur = (current or "direct").lower().strip()
+            nxt = cycle[(cycle.index(cur) + 1) % len(cycle)] if cur in cycle else "direct"
+            console.print(f"  {label}: {_fmt_field(current, typ)} → {_fmt_field(nxt, typ)}")
+            env[key] = nxt
+            write_env(env)
+            console.print("  [green]Сохранено! Перезапустите бота чтобы применить.[/green]")
+
+            # When switching to monitoring/auto, prompt for missing URLs
+            if nxt in ("monitoring", "auto"):
+                g_url = (env.get("MONITORING_API_URL") or env.get("MONITORING_GAMMA_URL", "")).strip()
+                w_url = env.get("MONITORING_WS_URL", "").strip()
+                if not g_url or not w_url:
+                    console.print()
+                    console.print(
+                        f"  [yellow]DATA_SOURCE={nxt} requires monitoring URLs.[/yellow]"
+                    )
+                    if not g_url:
+                        v = console.input(
+                            "  MONITORING_API_URL [dim](e.g. http://localhost:8000)[/dim]: "
+                        ).strip()
+                        if v:
+                            env["MONITORING_API_URL"] = v
+                            write_env(env)
+                    if not w_url:
+                        v = console.input(
+                            "  MONITORING_WS_URL [dim](e.g. ws://localhost:8000/ws)[/dim]: "
+                        ).strip()
+                        if v:
+                            env["MONITORING_WS_URL"] = v
+                            write_env(env)
+            time.sleep(1.0)
         else:
             new_str = console.input(f"  {label}  ({hint})\n  Новое значение: ").strip()
             if not new_str:
@@ -229,28 +308,110 @@ def menu_trading_settings() -> None:
                     env[key] = str(float(new_str))
                 elif typ in ("int", "sec"):
                     env[key] = str(int(float(new_str)))
+                elif typ == "url":
+                    env[key] = new_str
                 write_env(env)
                 console.print("  [green]Сохранено![/green]")
                 time.sleep(0.8)
             except ValueError:
                 console.print("  [red]Неверное значение[/red]")
                 time.sleep(0.8)
+def _derive_api_credentials_menu(env: dict[str, str]) -> None:
+    """Derive POLY_API_KEY/SECRET/PASSPHRASE from private key and save to .env."""
+    console.print()
+    console.rule("[bold yellow]Получение API-ключей из приватного ключа[/bold yellow]")
+    console.print()
+    console.print(
+        "  Вызывает [bold]createOrDeriveApiKey()[/bold] на Polymarket CLOB API.\n"
+        "  Один HTTP-запрос — [green]никаких ордеров не создаётся[/green].\n"
+        "  Если ключи уже существуют — возвращает те же значения (idempotent).\n"
+    )
+
+    priv_key = env.get("POLYMARKET_PRIVATE_KEY", "").strip()
+    if not priv_key:
+        console.print(
+            "[red]POLYMARKET_PRIVATE_KEY не задан.[/red]\n"
+            "  Сначала введи приватный ключ кошелька (пункт 1)."
+        )
+        console.print()
+        console.input("Нажмите Enter чтобы вернуться...")
+        return
+
+    # Показать что будет заменено
+    old_key        = env.get("POLY_API_KEY", "").strip()
+    old_secret     = env.get("POLY_API_SECRET", "").strip()
+    old_passphrase = env.get("POLY_API_PASSPHRASE", "").strip()
+    has_old = old_key or old_secret or old_passphrase
+
+    def _mask(v: str) -> str:
+        if not v:
+            return "[dim]не задан[/dim]"
+        return f"[yellow]{v[:6]}...{v[-4:]}[/yellow]"
+
+    if has_old:
+        console.print("  [yellow]Текущие ключи (будут заменены):[/yellow]")
+        console.print(f"    POLY_API_KEY:        {_mask(old_key)}")
+        console.print(f"    POLY_API_SECRET:     {_mask(old_secret)}")
+        console.print(f"    POLY_API_PASSPHRASE: {_mask(old_passphrase)}")
+        console.print()
+
+    confirm = console.input("  Получить и заменить ключи? ([bold]y[/bold]/n): ").strip().lower()
+    if confirm not in ("y", "yes", ""):
+        console.print("  [dim]Отменено.[/dim]")
+        time.sleep(0.8)
+        return
+
+    console.print()
+    console.print("  [dim]Обращаемся к Polymarket CLOB API...[/dim]")
+
+    try:
+        sys.path.insert(0, str(Path(__file__).parent))
+        from bot.config import Config
+        from bot.wallet import WalletError, derive_api_credentials
+
+        cfg = Config.from_env()
+        result = derive_api_credentials(cfg)
+
+    except Exception as exc:
+        console.print(f"\n  [red]Ошибка: {exc}[/red]")
+        console.print("  [dim]Проверь приватный ключ и доступность интернета.[/dim]")
+        console.print()
+        console.input("Нажмите Enter чтобы вернуться...")
+        return
+
+    api_key        = result["api_key"]
+    api_secret     = result["api_secret"]
+    api_passphrase = result["api_passphrase"]
+
+    console.print()
+    console.print("  [green bold]Успешно! Новые ключи:[/green bold]")
+    console.print(f"  POLY_API_KEY:        {api_key[:8]}...{api_key[-4:]}")
+    console.print(f"  POLY_API_SECRET:     {api_secret[:6]}...{api_secret[-4:]}")
+    console.print(f"  POLY_API_PASSPHRASE: {api_passphrase[:6]}...{api_passphrase[-4:]}")
+    console.print()
+
+    save = console.input("  Записать в .env (заменить старые)? ([bold]y[/bold]/n): ").strip().lower()
+    if save in ("y", "yes", ""):
+        env["POLY_API_KEY"]        = api_key
+        env["POLY_API_SECRET"]     = api_secret
+        env["POLY_API_PASSPHRASE"] = api_passphrase
+        write_env(env)
+        console.print("  [green]Ключи заменены и сохранены в .env![/green]")
+    else:
+        console.print("  [dim]Не сохранено. Скопируй значения вручную.[/dim]")
+
+    console.print()
+    console.input("Нажмите Enter чтобы вернуться...")
 
 
 def menu_api_keys() -> None:
     console.clear()
     console.rule("[bold cyan]API ключи и кошелёк[/bold cyan]")
     console.print()
-    console.print("[dim]Нужны только для LIVE торговли. Для dry-run можно пропустить.[/dim]")
-    console.print("[dim]Ключи получить: polymarket.com → Account → API Keys[/dim]")
+    console.print("[dim]Нужны только для LIVE торговли. Для paper/dry можно пропустить.[/dim]")
     console.print()
 
     env = read_env()
-
-    # Показать текущее состояние
-    t = Table(show_header=False, box=box.SIMPLE, padding=(0, 2))
-    t.add_column(style="dim", min_width=24)
-    t.add_column()
 
     def mask(val: str) -> str:
         if not val:
@@ -259,26 +420,33 @@ def menu_api_keys() -> None:
             return "[green]задан[/]"
         return f"[green]{val[:6]}...{val[-4:]}[/]"
 
-    t.add_row("PRIVATE_KEY",         mask(env.get("PRIVATE_KEY", "")))
-    t.add_row("WALLET_ADDRESS",      mask(env.get("WALLET_ADDRESS", "")))
-    t.add_row("POLY_API_KEY",        mask(env.get("POLY_API_KEY", "")))
-    t.add_row("POLY_API_SECRET",     mask(env.get("POLY_API_SECRET", "")))
-    t.add_row("POLY_API_PASSPHRASE", mask(env.get("POLY_API_PASSPHRASE", "")))
+    # Показать текущее состояние
+    t = Table(show_header=False, box=box.SIMPLE, padding=(0, 2))
+    t.add_column(style="dim", min_width=30)
+    t.add_column()
+
+    t.add_row("POLYMARKET_PRIVATE_KEY",   mask(env.get("POLYMARKET_PRIVATE_KEY", "")))
+    t.add_row("POLYMARKET_WALLET_ADDRESS",mask(env.get("POLYMARKET_WALLET_ADDRESS", "")))
+    t.add_row("POLYMARKET_PROXY_ADDRESS", mask(env.get("POLYMARKET_PROXY_ADDRESS", "")))
+    t.add_row("POLY_API_KEY (legacy)",    mask(env.get("POLY_API_KEY", "")))
+    t.add_row("POLY_API_SECRET (legacy)", mask(env.get("POLY_API_SECRET", "")))
 
     console.print(Panel(t, title="[bold]Текущие ключи[/]", box=box.ROUNDED, border_style="yellow"))
     console.print()
 
     KEYS = [
-        ("PRIVATE_KEY",         "Приватный ключ кошелька (0x...)"),
-        ("WALLET_ADDRESS",      "Адрес кошелька (0x...)"),
-        ("POLY_API_KEY",        "Polymarket API Key"),
-        ("POLY_API_SECRET",     "Polymarket API Secret"),
-        ("POLY_API_PASSPHRASE", "Polymarket API Passphrase"),
+        ("POLYMARKET_PRIVATE_KEY",    "Приватный ключ кошелька (0x...)"),
+        ("POLYMARKET_WALLET_ADDRESS", "Адрес кошелька (0x...)"),
+        ("POLYMARKET_PROXY_ADDRESS",  "Proxy/Safe адрес (0x..., если используется)"),
+        ("POLY_API_KEY",              "Polymarket API Key (legacy)"),
+        ("POLY_API_SECRET",           "Polymarket API Secret (legacy)"),
+        ("POLY_API_PASSPHRASE",       "Polymarket API Passphrase (legacy)"),
     ]
 
     for i, (key, label) in enumerate(KEYS, 1):
         console.print(f"  [cyan][{i}][/cyan] {label}")
-    console.print(f"  [cyan][6][/cyan] Ввести все ключи заново")
+    console.print(f"  [cyan][{len(KEYS)+1}][/cyan] Ввести wallet-ключи заново (1-3)")
+    console.print(f"  [cyan][D][/cyan] [bold]Получить API-ключи автоматически[/bold] (из приватного ключа)")
     console.print(f"  [cyan][0][/cyan] Назад")
     console.print()
 
@@ -286,12 +454,14 @@ def menu_api_keys() -> None:
 
     if choice == "0" or not choice:
         return
-    elif choice == "6":
+    elif choice.upper() == "D":
+        _derive_api_credentials_menu(env)
+    elif choice == str(len(KEYS) + 1):
+        # Re-enter wallet keys (first 3)
         console.print()
-        console.print("[yellow]Введи ключи (Enter = оставить без изменений):[/yellow]")
+        console.print("[yellow]Введи wallet ключи (Enter = оставить без изменений):[/yellow]")
         console.print()
-        for key, label in KEYS:
-            current = env.get(key, "")
+        for key, label in KEYS[:3]:
             new_val = console.input(f"  {label}: ").strip()
             if new_val:
                 env[key] = new_val

@@ -36,9 +36,15 @@ class RiskManager:
         self._paused_until: Optional[datetime] = None
         self._consecutive_losses = 0
 
-    def can_trade(self, market_id: str) -> tuple[bool, str]:
+    def can_trade(self, market_id: str, in_flight: int = 0) -> tuple[bool, str]:
         """
         Проверить можно ли открывать новую позицию.
+
+        Args:
+            market_id: ID рынка
+            in_flight: количество ордеров сейчас в процессе исполнения.
+                       Учитывается при проверке лимита позиций чтобы не превысить
+                       max_concurrent_positions пока ордера ещё не подтверждены.
 
         Returns:
             (True, "") если можно торговать
@@ -63,10 +69,12 @@ class RiskManager:
                 f"(limit: ${self.config.max_daily_loss:.2f})"
             )
 
-        # Слишком много открытых позиций
-        if len(self._open_positions) >= self.config.max_concurrent_positions:
+        # Слишком много позиций (открытые + ордера в процессе исполнения)
+        total = len(self._open_positions) + in_flight
+        if total >= self.config.max_concurrent_positions:
             return False, (
-                f"Max concurrent positions: {len(self._open_positions)} "
+                f"Max concurrent positions: {total} "
+                f"(open={len(self._open_positions)}, in_flight={in_flight}) "
                 f"/ {self.config.max_concurrent_positions}"
             )
 
@@ -93,8 +101,8 @@ class RiskManager:
             self._consecutive_losses = 0
         else:
             self._consecutive_losses += 1
-            # Пауза после 5 подряд убыточных сделок (не в тест-режиме)
-            if self._consecutive_losses >= 5 and self.config.min_profit_pct >= 0:
+            # Пауза после 5 подряд убыточных сделок (только в live-режиме)
+            if self._consecutive_losses >= 5 and not self.config.dry_run:
                 from datetime import timedelta
                 self._paused_until = datetime.now(timezone.utc) + timedelta(minutes=30)
                 log.warning(

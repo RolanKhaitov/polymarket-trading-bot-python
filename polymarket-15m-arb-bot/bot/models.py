@@ -1,7 +1,7 @@
 """Модели данных бота."""
 
 from dataclasses import dataclass, field
-from datetime import datetime
+from datetime import datetime, timezone
 from typing import Optional
 
 
@@ -37,7 +37,6 @@ class Market:
     def seconds_to_expiry(self) -> Optional[float]:
         """Секунд до закрытия рынка."""
         if self.end_date:
-            from datetime import timezone
             now = datetime.now(timezone.utc)
             end = self.end_date
             if end.tzinfo is None:
@@ -52,12 +51,13 @@ class MarketPrices:
     market: Market
     yes_best_ask: Optional[float] = None
     no_best_ask: Optional[float] = None
-    yes_best_ask_size: Optional[float] = None   # Ликвидность на best ask YES
-    no_best_ask_size: Optional[float] = None    # Ликвидность на best ask NO
+    yes_best_ask_size: Optional[float] = None
+    no_best_ask_size: Optional[float] = None
+    recv_time: float = 0.0  # time.monotonic() когда WS-сообщение получено
 
-    # Внутренний стакан (все уровни) для расчёта средней цены при большом объёме
-    yes_asks: list = field(default_factory=list)   # [(price, size), ...]
-    no_asks: list = field(default_factory=list)    # [(price, size), ...]
+    # Внутренний стакан (все уровни) — зарезервировано для будущего использования
+    yes_asks: list = field(default_factory=list)
+    no_asks: list = field(default_factory=list)
 
     @property
     def combined_ask(self) -> Optional[float]:
@@ -68,7 +68,6 @@ class MarketPrices:
 
     @property
     def gross_profit_pct(self) -> Optional[float]:
-        """Gross прибыль в долях: 1 - combined_ask."""
         c = self.combined_ask
         if c is None:
             return None
@@ -76,7 +75,6 @@ class MarketPrices:
 
     @property
     def min_liquidity(self) -> Optional[float]:
-        """Минимальная доступная ликвидность (меньшая из двух сторон) в shares."""
         if self.yes_best_ask_size is None or self.no_best_ask_size is None:
             return None
         return min(self.yes_best_ask_size, self.no_best_ask_size)
@@ -84,18 +82,21 @@ class MarketPrices:
 
 @dataclass
 class ArbitrageOpportunity:
-    """Обнаруженная арбитражная возможность."""
+    """Обнаруженная торговая возможность (favourite-leg)."""
     market: Market
     yes_ask: float
     no_ask: float
-    combined_cost: float       # yes_ask + no_ask
-    gross_profit_pct: float    # (1 - combined_cost) до комиссий
+    combined_cost: float       # Для favourite: limit_price (что планируем платить)
+    gross_profit_pct: float    # Ожидаемая прибыль если выиграем (1 - limit_price)
     yes_liquidity: float       # shares доступно на YES
     no_liquidity: float        # shares доступно на NO
-    trade_size: float          # shares для торговли
-    estimated_cost: float      # trade_size * combined_cost
-    estimated_profit: float    # trade_size * (1 - combined_cost) - fees
-    detected_at: datetime = field(default_factory=datetime.utcnow)
+    trade_size: float          # запрошенный объём (shares)
+    estimated_cost: float      # trade_size * limit_price
+    estimated_profit: float    # trade_size * (1 - limit_price) - fees (если выиграем)
+    detected_at: datetime = field(default_factory=lambda: datetime.now(timezone.utc))
+    side: str = "BOTH"         # "YES", "NO" (favourite), или "BOTH" (arb)
+    limit_price: float = 0.0   # наша лимитная цена покупки (favourite_ask - discount)
+    signal_id: str = ""        # id для связи signal→order→resolution в data/
 
     def summary(self) -> str:
         return (
@@ -110,14 +111,20 @@ class ArbitrageOpportunity:
 
 
 @dataclass
-class TradeResult:
-    """Результат исполнения сделки."""
-    opportunity: ArbitrageOpportunity
-    success: bool
+class OrderInfo:
+    """
+    Результат размещения ордера — возвращается из executor.execute().
+
+    Единая структура для dry-run и live режимов:
+    - dry-run: status="FILLED", filled_size=requested, order_id=""
+    - live: содержит реальные данные от CLOB API
+
+    Partial fill: filled_size < (filled_size + unfilled_size)
+    """
+    order_id: str           # "" в dry-run, реальный ID в live
+    status: str             # "FILLED" | "PARTIAL" | "CANCELLED" | "OPEN"
+    filled_size: float      # реально исполнено (shares)
+    unfilled_size: float    # не исполнено (shares)
+    avg_fill_price: float   # средняя цена исполнения (0.0 если не исполнен)
+    placed_at: datetime     # когда выставлен ордер
     dry_run: bool
-    yes_fill_price: Optional[float] = None
-    no_fill_price: Optional[float] = None
-    actual_cost: Optional[float] = None
-    actual_profit: Optional[float] = None
-    error: Optional[str] = None
-    executed_at: datetime = field(default_factory=datetime.utcnow)
